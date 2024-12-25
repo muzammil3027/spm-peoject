@@ -1,101 +1,93 @@
 #include <iostream>
 #include <cmath>
 #include <vector>
+#include <stdexcept>
 #include <hpc_helpers.hpp>  // Include the custom helper header file
 
 using namespace std;
 
-// Class to handle matrix operations (initialization, computation, etc.)
+// Class to handle matrix operations
 class Matrix {
 public:
     // Constructor to initialize matrix size and allocate memory
-    Matrix(uint64_t size) : size_(size) {
-        matrix_ = new double[size_ * size_];
+    explicit Matrix(uint64_t size, bool debug = false) : size_(size), debugMode_(debug) {
+        if (size_ == 0) {
+            throw invalid_argument("Matrix size must be greater than 0.");
+        }
+        matrix_.resize(size_ * size_, 0.0);
         initMatrix();
-    }
-
-    // Destructor to free dynamically allocated memory
-    ~Matrix() {
-        delete[] matrix_;
     }
 
     // Function to initialize the matrix with appropriate values
     void initMatrix() {
-        for (uint64_t row = 0; row < size_; row++) {
-            for (uint64_t col = 0; col < size_; col++) {
-                // Set diagonal elements and zero out non-diagonal elements
-                if (row == col) {
-                    matrix_[row * size_ + col] = (row + 1) / static_cast<double>(size_);
-                } else {
-                    matrix_[row * size_ + col] = 0.0;
-                }
+        for (uint64_t row = 0; row < size_; ++row) {
+            for (uint64_t col = 0; col < size_; ++col) {
+                matrix_[row * size_ + col] = (row == col) ? (row + 1) / static_cast<double>(size_) : 0.0;
             }
+        }
+        if (debugMode_) {
+            cout << "Matrix initialized." << endl;
+            printMatrix();
         }
     }
 
     // Function to print the matrix (for debugging)
     void printMatrix() const {
-        printf("Resulting Matrix:\n");
+        cout << "Resulting Matrix:" << endl;
         for (uint64_t row = 0; row < size_; ++row) {
             for (uint64_t col = 0; col < size_; ++col) {
-                printf("%f ", matrix_[row * size_ + col]);
+                cout << matrix_[row * size_ + col] << " ";
             }
-            printf("\n");
+            cout << endl;
         }
     }
 
-    // Function to perform wavefront computation
-    void computeWavefront(bool debugMode) {
+    // Perform wavefront computation
+    void computeWavefront() {
         for (uint64_t k = 1; k < size_; ++k) {
             for (uint64_t row = 0; row < size_ - k; ++row) {
                 double dotProduct = 0.0;
-                // Compute the dot product for the current diagonal band
                 for (uint64_t j = 1; j < k + 1; ++j) {
                     dotProduct += matrix_[row * size_ + (row + k - j)] * matrix_[(row + j) * size_ + (row + k)];
                 }
-
-                if (debugMode) {
-                    // Debugging: print the values before the update
-                    std::cout << "Dot product for k = " << k << ", row = " << row 
-                              << ": " << dotProduct << std::endl;
-                }
-                
-                // Update the matrix with the cube root of the dot product
                 matrix_[row * size_ + (row + k)] = cbrt(dotProduct);
 
-                if (debugMode) {
-                    // Debugging: print the matrix element after the update
-                    std::cout << "Matrix element at [" << row << ", " << (row + k) 
-                              << "] updated to: " << matrix_[row * size_ + (row + k)] << std::endl;
+                if (debugMode_) {
+                    cout << "Updated Matrix[" << row << "][" << (row + k) << "] = "
+                         << matrix_[row * size_ + (row + k)] << endl;
                 }
             }
         }
     }
 
-    // Function to retrieve a specific element from the matrix (for checking results)
+    // Retrieve specific matrix element (for result verification)
     double getElement(uint64_t row, uint64_t col) const {
         return matrix_[row * size_ + col];
     }
 
 private:
-    uint64_t size_;       // Matrix size (NxN)
-    double *matrix_;      // Pointer to the matrix
+    uint64_t size_;            // Matrix size
+    vector<double> matrix_;    // Flattened matrix storage
+    bool debugMode_;           // Debugging flag
 };
 
-// Function to parse command line arguments
+// Command-line argument parsing
 bool parseArgs(int argc, char* argv[], uint64_t& matrixSize, bool& debugMode) {
-    // Default values
-    matrixSize = 512;  // Default size of the matrix
-    debugMode = false; // Default to no debug mode
+    matrixSize = 512;  // Default size
+    debugMode = false;
 
     for (int i = 1; i < argc; ++i) {
-        if (string(argv[i]) == "--debug" || string(argv[i]) == "-d") {
+        string arg = argv[i];
+        if (arg == "--debug" || arg == "-d") {
             debugMode = true;
         } else {
             try {
-                matrixSize = std::stol(argv[i]);
-            } catch (const std::invalid_argument&) {
-                std::cerr << "Invalid argument: " << argv[i] << std::endl;
+                matrixSize = stoul(argv[i]);
+                if (matrixSize == 0) {
+                    throw invalid_argument("Matrix size must be positive.");
+                }
+            } catch (const exception& e) {
+                cerr << "Invalid argument: " << argv[i] << endl;
                 return false;
             }
         }
@@ -103,36 +95,31 @@ bool parseArgs(int argc, char* argv[], uint64_t& matrixSize, bool& debugMode) {
     return true;
 }
 
-// Main function that runs the program
-int main(int argc, char *argv[]) {
-    uint64_t matrixSize;  // Matrix size (NxN)
-    bool debugMode;       // Flag to enable debug mode
+// Main function
+int main(int argc, char* argv[]) {
+    uint64_t matrixSize;
+    bool debugMode;
 
-    // Parse command line arguments
     if (!parseArgs(argc, argv, matrixSize, debugMode)) {
-        std::cout << "Usage: " << argv[0] << " [matrix_size] [--debug/-d]" << std::endl;
-        return -1;
+        cerr << "Usage: " << argv[0] << " [matrix_size] [--debug/-d]" << endl;
+        return EXIT_FAILURE;
     }
 
-    // Create a matrix object with the specified size
-    Matrix matrix(matrixSize);
+    try {
+        Matrix matrix(matrixSize, debugMode);
 
-    // Start the timer for the wavefront computation
-    TIMERSTART(wavefront);
+        TIMERSTART(wavefront);
+        matrix.computeWavefront();
+        TIMERSTOP(wavefront);
 
-    // Perform the wavefront computation (with or without debug mode)
-    matrix.computeWavefront(debugMode);
+        cout << "Last element of the matrix: "
+             << matrix.getElement(matrixSize - 1, matrixSize - 1) << endl;
 
-    // Stop the timer and print the elapsed time
-    TIMERSTOP(wavefront);
+    } catch (const exception& e) {
+        cerr << "Error: " << e.what() << endl;
+        return EXIT_FAILURE;
+    }
 
-    // Optionally, print the entire matrix (disabled for large matrices)
-    // matrix.printMatrix();
-
-    // Print the last element of the matrix to check the result of the computation
-    std::cout << "Last element of the matrix: " 
-              << matrix.getElement(matrixSize - 1, matrixSize - 1) << std::endl;
-
-    return 0;
+    return EXIT_SUCCESS;
 }
 
