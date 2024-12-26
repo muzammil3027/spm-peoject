@@ -1,0 +1,10 @@
+# Ignore logs
+*.log
+*.err
+
+# Ignore compiled binaries
+FFUTWavefront
+
+# Ignore temp files
+temp_*.txt
+
