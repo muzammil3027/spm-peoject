@@ -10,54 +10,81 @@ OPTFLAGS = -O3 -DNDEBUG -ffast-math -g
 CXXFLAGS += -Wall
 
 # Include directories
-INCLUDES = -I. -I ../include -I $(FF_ROOT)
+INCLUDES = -I. -I include -I $(FF_ROOT)
 
 # Libraries
 LIBS = -pthread -fopenmp
 
-# List of all .cpp source files
-SOURCES = $(wildcard *.cpp)
+# Source files
+SOURCES = BroadMPIUTWavefront.cpp SequentialUTWavefront.cpp
+TARGETS = BroadMPIUTWavefront SequentialUTWavefront
 
-# Define targets from source files (remove the .cpp extension)
-TARGET = $(SOURCES:.cpp=)
+.PHONY: all clean cleanall clean-temp clean-slurm-logs clean-slurm-errs test
 
-# Default target (build all executables)
-.PHONY: all clean cleanall run_test run_multiple_tests
+all: $(TARGETS)
 
-# General compilation rule for all .cpp files
-%: %.cpp
-	@if echo "$<" | grep -q "MPI"; then \
-		$(MPI) $(INCLUDES) $(CXXFLAGS) $(OPTFLAGS) -o $@.o $< $(LIBS); \
-	else \
-		$(CXX) $(INCLUDES) $(CXXFLAGS) $(OPTFLAGS) -o $@.o $< $(LIBS); \
-	fi
+BroadMPIUTWavefront: BroadMPIUTWavefront.cpp
+	$(MPI) $(INCLUDES) $(CXXFLAGS) $(OPTFLAGS) -o $@ $< $(LIBS)
 
-# Build all targets
-all: $(TARGET)
+SequentialUTWavefront: SequentialUTWavefront.cpp
+	$(CXX) $(INCLUDES) $(CXXFLAGS) $(OPTFLAGS) -o $@ $< $(LIBS)
+
+# Test target to run both sequential and parallel tests
+test: SequentialUTWavefront BroadMPIUTWavefront
+	@echo "Running SequentialUTWavefront Test..."
+	./SequentialUTWavefront 512 > temp_sequential_output.txt
+	cat temp_sequential_output.txt
+	@echo "\nRunning BroadMPIUTWavefront Test..."
+	mpirun -np 8 ./BroadMPIUTWavefront 512 > temp_parallel_output.txt
+	cat temp_parallel_output.txt
 
 # Run the compiled program with the provided arguments
-run_test: 
-	./$(FILE) $(ARGS)
+run_test:
+	@if [ -z "$(FILE)" ] || [ -z "$(ARGS)" ]; then \
+		echo "Error: FILE or ARGS not set"; \
+		exit 1; \
+	fi; \
+	if echo "$(FILE)" | grep -q "MPI"; then \
+		mpirun -np $$(echo $(ARGS) | awk '{print $$1}') ./$(FILE) $$(echo $(ARGS) | awk '{print $$2}'); \
+	else \
+		./$(FILE) $(ARGS); \
+	fi
 
-# Run multiple tests and compute the average execution time over 10 runs
 run_multiple_tests:
-	@ ARG2=$(shell echo $(ARGS) | awk '{print $$2}'); \
+	@if [ -z "$(FILE)" ] || [ -z "$(ARGS)" ]; then \
+		echo "Error: FILE or ARGS not set"; \
+		exit 1; \
+	fi; \
+	touch temp_elapsed_times.txt; \
+	rm -f temp_elapsed_times.txt; \
 	for i in $$(seq 1 10); do \
-		if echo "$(FILE)" | grep -q "MPI"; then \
-			mpirun ./$(FILE) $(ARGS) | grep "# elapsed time" | awk '{print "Time: " $$5}' >> temp_elapsed_times_$$ARG2.txt; \
-		else \
-			./$(FILE) $(ARGS) | grep "# elapsed time" | awk '{print "Time: " $$5}' >> temp_elapsed_times_$$ARG2.txt; \
-		fi \
+		./$(FILE) $(ARGS) | grep "# elapsed time" | awk '{print $$4}' >> temp_elapsed_times.txt; \
 	done; \
-	echo "Average elapsed times over 10 executions:"; \
-	echo "$$(grep "Time: " temp_elapsed_times_$$ARG2.txt | awk '{ total += $$2; count++ } END { print total/count "s" }')"; \
-	rm -f temp_elapsed_times_$$ARG2.txt;
+	if [ -s temp_elapsed_times.txt ]; then \
+		echo "Average elapsed times over 10 executions:"; \
+		awk '{ total += $$1; count++ } END { if (count > 0) print total/count " seconds"; else print "No valid times collected"; }' temp_elapsed_times.txt; \
+	else \
+		echo "No valid times collected"; \
+	fi; \
+	rm -f temp_elapsed_times.txt;
 
-# Clean up object files and other generated files
-clean: 
-	-rm -fr *.o *~
+# Clean generated binaries
+clean:
+	-rm -f BroadMPIUTWavefront SequentialUTWavefront temp_elapsed_times.txt temp_parallel_output.txt temp_sequential_output.txt
+
+# Clean only temporary files
+clean-temp:
+	-rm -f temp_elapsed_times.txt temp_parallel_output.txt temp_sequential_output.txt
+
+# Clean only SLURM log files (*.log)
+clean-slurm-logs:
+	-rm -f *.log
+
+# Clean only SLURM error files (*.err)
+clean-slurm-errs:
+	-rm -f *.err
 
 # Clean everything, including targets
-cleanall: clean
-	-rm -fr $(TARGET)
+cleanall: clean clean-temp clean-slurm-logs clean-slurm-errs
+	-rm -f $(TARGETS)
 
