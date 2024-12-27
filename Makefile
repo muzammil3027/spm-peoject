@@ -4,13 +4,12 @@ FF_ROOT = /home/m.muzammil/spm-peoject/fastflow
 endif
 
 # Compiler and flags
-CXX       = g++ -std=c++20 
+CXX       = g++ -std=c++20
 MPI       = mpicxx -std=c++20
 OPTFLAGS  = -O3 -DNDEBUG -ffast-math -g
 CXXFLAGS += -Wall -Wno-unused-function -w
 
 # Include directories
-# IMPORTANT: we now point to $(FF_ROOT) so that #include <ff/pipeline.hpp> works.
 INCLUDES = -I. -I include -I $(FF_ROOT)
 
 # Libraries
@@ -20,7 +19,7 @@ LIBS = -pthread -fopenmp
 SOURCES = BroadMPIUTWavefront.cpp SequentialUTWavefront.cpp FFUTWavefront.cpp
 TARGETS = BroadMPIUTWavefront SequentialUTWavefront FFUTWavefront
 
-.PHONY: all clean cleanall clean-temp clean-slurm-logs clean-slurm-errs test run_test run_multiple_tests
+.PHONY: all clean cleanall test run_test run_multiple_tests debug run_fastflow run_sequential run_mpi
 
 # Build all targets
 all: $(TARGETS)
@@ -34,82 +33,65 @@ SequentialUTWavefront: SequentialUTWavefront.cpp
 FFUTWavefront: FFUTWavefront.cpp
 	$(CXX) $(INCLUDES) $(CXXFLAGS) $(OPTFLAGS) -o $@ $< $(LIBS)
 
-# Test target to run all tests (sequential, MPI, and FastFlow) with default settings
+# Debug-specific target
+debug: CXXFLAGS += -O0 -g
+debug: all
+
+# Test all implementations
 test: SequentialUTWavefront BroadMPIUTWavefront FFUTWavefront
-	@echo "Running SequentialUTWavefront Test (Matrix Size: 1024, Cores: 1)..."
-	./SequentialUTWavefront 1024 > temp_sequential_output.txt
-	cat temp_sequential_output.txt
+	@echo "Running SequentialUTWavefront Test (Matrix Size: 1024, 1 Thread)..."
+	./SequentialUTWavefront 1024 > sequential_test_$(shell date +%F_%T).log
 
-	@echo "\nRunning BroadMPIUTWavefront Test (Matrix Size: 1024, Cores: 8)..."
-	mpirun -np 8 ./BroadMPIUTWavefront 1024 > temp_parallel_output.txt
-	cat temp_parallel_output.txt
+	@echo "\nRunning BroadMPIUTWavefront Test (Matrix Size: 1024, 8 Processes)..."
+	mpirun -np 8 ./BroadMPIUTWavefront 1024 > mpi_test_$(shell date +%F_%T).log
 
-	@echo "\nRunning FFUTWavefront Test (Matrix Size: 1024, Cores: 8)..."
-	./FFUTWavefront 1024 8 > temp_fastflow_output.txt
-	cat temp_fastflow_output.txt
+	@echo "\nRunning FFUTWavefront Test (Matrix Size: 1024, 8 Threads)..."
+	./FFUTWavefront 1024 8 > fastflow_test_$(shell date +%F_%T).log
 
-# Run a single program (sequential, MPI, or FastFlow) with custom FILE and ARGS
-# Usage example:
-#    make run_test FILE=SequentialUTWavefront ARGS="1024"
-#    make run_test FILE=BroadMPIUTWavefront   ARGS="8 1024"
-#    make run_test FILE=FFUTWavefront        ARGS="1024 8"
-run_test:
-	@if [ -z "$(FILE)" ] || [ -z "$(ARGS)" ]; then \
-		echo "Error: FILE or ARGS not set"; \
-		exit 1; \
-	fi; \
-	if echo "$(FILE)" | grep -q "MPI"; then \
-		# For MPI code, the first argument is # of processes, the second is matrix size
-		mpirun -np $$(echo $(ARGS) | awk '{print $$1}') ./$(FILE) $$(echo $(ARGS) | awk '{print $$2}'); \
-	else \
-		# For sequential or FastFlow code, just pass $(ARGS)
-		./$(FILE) $(ARGS); \
-	fi
-
-# Run multiple tests (10 times) to collect average elapsed time from the output
-# (the code should print a line containing "# elapsed time" <time_in_seconds>)
+# Run Multiple tests together
 run_multiple_tests:
-	@if [ -z "$(FILE)" ] || [ -z "$(ARGS)" ]; then \
-		echo "Error: FILE or ARGS not set"; \
-		exit 1; \
-	fi; \
-	touch temp_elapsed_times.txt; \
-	rm -f temp_elapsed_times.txt; \
-	for i in $$(seq 1 10); do \
-		./$(FILE) $(ARGS) | grep "# elapsed time" | awk '{print $$4}' >> temp_elapsed_times.txt; \
-	done; \
-	if [ -s temp_elapsed_times.txt ]; then \
-		echo "Average elapsed times over 10 executions:"; \
-		awk '{ total += $$1; count++ } END { if (count > 0) print total/count " seconds"; else print "No valid times collected"; }' temp_elapsed_times.txt; \
-	else \
-		echo "No valid times collected"; \
-	fi; \
-	rm -f temp_elapsed_times.txt;
+	@make run_sequential
+	@make run_mpi
+	@make run_fastflow
 
-# Clean generated binaries and temp files
+# Run FastFlow for multiple matrix sizes and threads
+run_fastflow:
+	@for size in 512 1024 2048 4096 8192; do \
+		for threads in 2 4 8 16; do \
+			echo "Testing FFUTWavefront: Matrix Size=$$size, Threads=$$threads"; \
+			./FFUTWavefront $$size $$threads >> fastflow_results.log; \
+			echo "Matrix Size=$$size, Threads=$$threads completed."; \
+		done; \
+	done
+
+# Run Sequential for multiple matrix sizes
+run_sequential:
+	@for size in 512 1024 2048 4096 8192; do \
+		echo "Testing SequentialUTWavefront: Matrix Size=$$size, 1 Thread"; \
+		./SequentialUTWavefront $$size >> sequential_results.log; \
+		echo "Matrix Size=$$size, 1 Thread completed."; \
+	done
+
+# Run MPI for multiple matrix sizes and processes
+run_mpi:
+	@for size in 512 1024 2048 4096 8192; do \
+		for procs in 2 4 8 16; do \
+			echo "Testing BroadMPIUTWavefront: Matrix Size=$$size, Processes=$$procs"; \
+			mpirun -np $$procs ./BroadMPIUTWavefront $$size >> mpi_results.log; \
+			echo "Matrix Size=$$size, Processes=$$procs completed."; \
+		done; \
+	done
+
+# Clean generated binaries and logs
 clean:
 	-rm -f BroadMPIUTWavefront SequentialUTWavefront FFUTWavefront \
-	       temp_elapsed_times.txt \
-	       temp_parallel_output.txt \
-	       temp_sequential_output.txt \
-	       temp_fastflow_output.txt
+		   temp_elapsed_times.txt \
+		   temp_parallel_output.txt \
+		   temp_sequential_output.txt \
+		   temp_fastflow_output.txt \
+		   *_test_*.log sequential_results.log mpi_results.log fastflow_results.log fastflow_analysis.log mpi_analysis.log fastflow_weak_scalability.log mpi_weak_scalability.log
 
-# Clean only temporary files
-clean-temp:
-	-rm -f temp_elapsed_times.txt \
-	       temp_parallel_output.txt \
-	       temp_sequential_output.txt \
-	       temp_fastflow_output.txt
-
-# Clean only SLURM log files (*.log)
-clean-slurm-logs:
-	-rm -f *.log
-
-# Clean only SLURM error files (*.err)
-clean-slurm-errs:
-	-rm -f *.err
-
-# Clean everything, including targets
-cleanall: clean clean-temp clean-slurm-logs clean-slurm-errs
+# Clean everything
+cleanall: clean
 	-rm -f $(TARGETS)
 
