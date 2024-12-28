@@ -8,32 +8,35 @@
     #include <chrono>
 #endif
 
+// Define consistent macros for timer usage
 #ifndef __CUDACC__
+    // Start the timer
     #define TIMERSTART(label)                                                  \
         std::chrono::time_point<std::chrono::system_clock> a##label, b##label; \
         a##label = std::chrono::system_clock::now();
+
+    // Stop the timer and output a consistent format
+    #define TIMERSTOP(label)                                                   \
+        b##label = std::chrono::system_clock::now();                           \
+        std::chrono::duration<double> delta##label = b##label - a##label;      \
+        std::cout << "# elapsed time: " << delta##label.count() << " seconds"  \
+                  << std::endl;
+
 #else
+    // CUDA version of the timer macros
     #define TIMERSTART(label)                                                  \
         cudaEvent_t start##label, stop##label;                                 \
         float time##label;                                                     \
         cudaEventCreate(&start##label);                                        \
         cudaEventCreate(&stop##label);                                         \
         cudaEventRecord(start##label, 0);
-#endif
 
-#ifndef __CUDACC__
     #define TIMERSTOP(label)                                                   \
-        b##label = std::chrono::system_clock::now();                           \
-        std::chrono::duration<double> delta##label = b##label-a##label;        \
-        std::cout << "# elapsed time ("<< #label <<"): "                       \
-                  << delta##label.count()  << "s" << std::endl;
-#else
-    #define TIMERSTOP(label)                                                   \
-            cudaEventRecord(stop##label, 0);                                   \
-            cudaEventSynchronize(stop##label);                                 \
-            cudaEventElapsedTime(&time##label, start##label, stop##label);     \
-            std::cout << "TIMING: " << time##label << " ms (" << #label << ")" \
-                      << std::endl;
+        cudaEventRecord(stop##label, 0);                                       \
+        cudaEventSynchronize(stop##label);                                     \
+        cudaEventElapsedTime(&time##label, start##label, stop##label);         \
+        std::cout << "# elapsed time: " << time##label / 1000.0 << " seconds"  \
+                  << std::endl;
 #endif
 
 
@@ -47,63 +50,62 @@
         }                                                                      \
     }
 
-    // transfer constants
+    // Transfer constants
     #define H2D (cudaMemcpyHostToDevice)
     #define D2H (cudaMemcpyDeviceToHost)
     #define H2H (cudaMemcpyHostToHost)
     #define D2D (cudaMemcpyDeviceToDevice)
 #endif
 
-// safe division
-#define SDIV(x,y)(((x)+(y)-1)/(y))
+// Safe division macro
+#define SDIV(x,y) (((x) + (y) - 1) / (y))
 
-// no_init_t
+// Define no_init_t wrapper for numeric types
 #include <type_traits>
 
 template<class T>
 class no_init_t {
 public:
-
     static_assert(std::is_fundamental<T>::value &&
-                  std::is_arithmetic<T>::value, 
+                  std::is_arithmetic<T>::value,
                   "wrapped type must be a fundamental, numeric type");
 
-    //do nothing
+    // Default constructor does nothing
     constexpr no_init_t() noexcept {}
 
-    //convertible from a T
-    constexpr no_init_t(T value) noexcept: v_(value) {}
+    // Convertible from a T
+    constexpr no_init_t(T value) noexcept : v_(value) {}
 
-    //act as a T in all conversion contexts
+    // Acts as a T in all conversion contexts
     constexpr operator T () const noexcept { return v_; }
 
-    // negation on value and bit level
+    // Negation operators
     constexpr no_init_t& operator - () noexcept { v_ = -v_; return *this; }
     constexpr no_init_t& operator ~ () noexcept { v_ = ~v_; return *this; }
 
-    // prefix increment/decrement operators
-    constexpr no_init_t& operator ++ ()    noexcept { v_++; return *this; }
-    constexpr no_init_t& operator -- ()    noexcept { v_--; return *this; }
+    // Prefix increment/decrement
+    constexpr no_init_t& operator ++ () noexcept { v_++; return *this; }
+    constexpr no_init_t& operator -- () noexcept { v_--; return *this; }
 
-    // postfix increment/decrement operators
+    // Postfix increment/decrement
     constexpr no_init_t operator ++ (int) noexcept {
        auto old(*this);
-       v_++; 
-       return old; 
+       v_++;
+       return old;
     }
     constexpr no_init_t operator -- (int) noexcept {
        auto old(*this);
-       v_--; 
-       return old; 
+       v_--;
+       return old;
     }
 
-    // assignment operators
+    // Assignment operators
     constexpr no_init_t& operator  += (T v) noexcept { v_  += v; return *this; }
     constexpr no_init_t& operator  -= (T v) noexcept { v_  -= v; return *this; }
     constexpr no_init_t& operator  *= (T v) noexcept { v_  *= v; return *this; }
     constexpr no_init_t& operator  /= (T v) noexcept { v_  /= v; return *this; }
 
-    // bit-wise operators
+    // Bitwise operators
     constexpr no_init_t& operator  &= (T v) noexcept { v_  &= v; return *this; }
     constexpr no_init_t& operator  |= (T v) noexcept { v_  |= v; return *this; }
     constexpr no_init_t& operator  ^= (T v) noexcept { v_  ^= v; return *this; }
@@ -111,7 +113,8 @@ public:
     constexpr no_init_t& operator <<= (T v) noexcept { v_ <<= v; return *this; }
 
 private:
-   T v_;
+    T v_; // Underlying value
 };
 
 #endif
+

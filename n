@@ -38,11 +38,11 @@ run_multiple_tests:
 	TOTAL_TIME=0; \
 	for i in $$(seq 1 $(ITERATIONS)); do \
 		if [ "$(FILE)" = "FFUTWavefront" ]; then \
-			ELAPSED=$$(./$(FILE) $(ARGS) 2>&1 | grep -m1 "# elapsed time:" | grep -Po "\d+\.\d+"); \
+			ELAPSED=$$(./$(FILE) $(ARGS) 2>&1 | grep -m1 "# elapsed time:" | awk '{print $$NF}'); \
 		elif [ "$(FILE)" = "BroadMPIUTWavefront" ]; then \
-			ELAPSED=$$(mpirun -np $$(echo $(ARGS) | awk '{print $$2}') ./$(FILE) $$(echo $(ARGS) | awk '{print $$1}') 2>&1 | grep -m1 "# elapsed time (wavefront):" | grep -Po "\d+\.\d+"); \
+			ELAPSED=$$(mpirun -np $$(echo $(ARGS) | awk '{print $$2}') ./$(FILE) $$(echo $(ARGS) | awk '{print $$1}') 2>&1 | grep -m1 "# elapsed time:" | awk '{print $$NF}'); \
 		else \
-			ELAPSED=$$(./$(FILE) $(ARGS) 2>&1 | grep -m1 "# elapsed time:" | grep -Po "\d+\.\d+"); \
+			ELAPSED=$$(./$(FILE) $(ARGS) 2>&1 | grep -m1 "# elapsed time:" | awk '{print $$NF}'); \
 		fi; \
 		if [ -z "$$ELAPSED" ]; then \
 			echo "Error: Could not capture elapsed time for Run $$i"; \

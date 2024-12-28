@@ -3,7 +3,7 @@
 #include <vector>
 #include <stdexcept>       // For std::invalid_argument
 #include <ff/parallel_for.hpp>
-#include "hpc_helpers.hpp" // Ensure TIMERSTART/TIMERSTOP macros are defined
+#include "hpc_helpers.hpp" // Include TIMERSTART/TIMERSTOP macros
 
 #define MAX_THREADS 32
 
@@ -12,7 +12,7 @@ using namespace ff;
 // A class to encapsulate the NxN matrix and wavefront logic
 class Matrix {
 public:
-    // Constructor: allocate and initialize the matrix
+    // Constructor to allocate and initialize the matrix
     Matrix(uint64_t size, int threads, bool debug = false)
         : size_(size), numThreads_(threads), debugMode_(debug) {
         if (size_ == 0) {
@@ -41,7 +41,7 @@ public:
     void printMatrix() const {
         if (!debugMode_) return;
 
-        std::cout << "Resulting Matrix:" << std::endl;
+        std::cout << "Matrix:" << std::endl;
         for (uint64_t row = 0; row < size_; ++row) {
             for (uint64_t col = 0; col < size_; ++col) {
                 std::cout << matrix_[row * size_ + col] << " ";
@@ -55,22 +55,14 @@ public:
         ParallelFor pf(numThreads_, false, false); // Use non-spin waiting to reduce CPU usage
 
         for (uint64_t k = 1; k < size_; ++k) {
-            // Dynamically adjust the number of threads for small workloads
-            if (numThreads_ > static_cast<int>(size_ - k) && numThreads_ > 1) {
-                --numThreads_;
-            }
-
-            // For each diagonal iteration, run parallel_for over rows [0..(size_-k-1)]
             pf.parallel_for(0, size_ - k, 1, [&, k](uint64_t row) {
                 double dotProduct = 0.0;
-                // Compute the dot product for the current element
                 for (uint64_t j = 1; j < k + 1; ++j) {
                     dotProduct += matrix_[row * size_ + (row + k - j)]
                                 * matrix_[(row + j) * size_ + (row + k)];
                 }
                 matrix_[row * size_ + (row + k)] = cbrt(dotProduct);
 
-                // Debugging output for each computed element
                 if (debugMode_) {
                     std::cout << "Updated M[" << row << "][" << (row + k)
                               << "] = " << matrix_[row * size_ + (row + k)]
@@ -94,8 +86,8 @@ private:
 
 // Command-line argument parsing
 bool parseArgs(int argc, char* argv[], uint64_t& matrixSize, int& numThreads, bool& debugMode) {
-    matrixSize = 512;       // Default size
-    numThreads = MAX_THREADS; // Default to MAX_THREADS
+    matrixSize = 512;           // Default size
+    numThreads = MAX_THREADS;   // Default to MAX_THREADS
     debugMode = false;
 
     for (int i = 1; i < argc; ++i) {
@@ -124,12 +116,15 @@ int main(int argc, char* argv[]) {
     bool debugMode;
 
     if (!parseArgs(argc, argv, matrixSize, numThreads, debugMode)) {
-        std::cerr << "Usage: " << argv[0] << " [matrix_size] [num_threads] [--debug/-d]"
-                  << std::endl;
+        std::cerr << "Usage: " << argv[0] << " [matrix_size] [num_threads] [--debug/-d]" << std::endl;
         return EXIT_FAILURE;
     }
 
     try {
+        std::cout << "Running FastFlow Implementation..." << std::endl;
+        std::cout << "Workers: " << numThreads << std::endl;
+        std::cout << "Matrix Size: " << matrixSize << std::endl;
+
         // Create the matrix object
         Matrix matrix(matrixSize, numThreads, debugMode);
 
@@ -142,7 +137,7 @@ int main(int argc, char* argv[]) {
         // Stop timing (macro prints elapsed time automatically)
         TIMERSTOP(wavefront);
 
-        // Print a result: the bottom-right corner (row=N-1, col=N-1)
+        // Print the last element of the matrix
         std::cout << "Last element of the matrix: "
                   << matrix.getElement(matrixSize - 1, matrixSize - 1)
                   << std::endl;

@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstring>
 #include <mpi.h>
+#include "hpc_helpers.hpp" // Include timing macros
 
 using namespace std;
 
@@ -27,10 +28,10 @@ public:
         }
     }
 
-    void computeWavefront(MPI_Comm comm, int myRank, int size) {
+    void computeWavefront(MPI_Comm comm, int myRank, int numProcs) {
         for (uint64_t k = 1; k < size_; ++k) {
-            int rowsPerProcess = (size_ - k) / size;
-            int extraRows = (size_ - k) % size;
+            int rowsPerProcess = (size_ - k) / numProcs;
+            int extraRows = (size_ - k) % numProcs;
             int rowsToProcess = rowsPerProcess + (myRank < extraRows ? 1 : 0);
 
             double* valuesToSend = new double[rowsToProcess];
@@ -58,15 +59,15 @@ public:
     }
 
     void gatherResults(MPI_Comm comm, double* valuesToSend, int* indices, int numElements, uint64_t k) {
-        int size;
-        MPI_Comm_size(comm, &size);
+        int numProcs;
+        MPI_Comm_size(comm, &numProcs);
 
-        int* recvCounts = new int[size];
+        int* recvCounts = new int[numProcs];
         MPI_Allgather(&numElements, 1, MPI_INT, recvCounts, 1, MPI_INT, comm);
 
-        int* displs = new int[size];
+        int* displs = new int[numProcs];
         int totalElements = 0;
-        for (int i = 0; i < size; ++i) {
+        for (int i = 0; i < numProcs; ++i) {
             displs[i] = totalElements;
             totalElements += recvCounts[i];
         }
@@ -95,33 +96,48 @@ public:
 
 private:
     uint64_t size_;
-    double *matrix_;
+    double* matrix_;
 };
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
     MPI_Init(&argc, &argv);
 
-    int myRank, size;
+    int myRank, numProcs;
     MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
 
     uint64_t matrixSize = 512;
 
     if (argc > 1) {
-        matrixSize = std::stol(argv[1]);
+        try {
+            matrixSize = std::stol(argv[1]);
+            if (matrixSize == 0) {
+                throw invalid_argument("Matrix size must be positive.");
+            }
+        } catch (const exception& e) {
+            if (myRank == 0) {
+                cerr << "Invalid argument for matrix size. Usage: " << argv[0] << " [matrix_size]" << endl;
+            }
+            MPI_Finalize();
+            return EXIT_FAILURE;
+        }
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
     double startTime = MPI_Wtime();
 
     Matrix matrix(matrixSize);
-    matrix.computeWavefront(MPI_COMM_WORLD, myRank, size);
+    matrix.computeWavefront(MPI_COMM_WORLD, myRank, numProcs);
 
     MPI_Barrier(MPI_COMM_WORLD);
     double endTime = MPI_Wtime();
 
     if (myRank == 0) {
-        std::cout << "# elapsed time: " << endTime - startTime << " seconds" << std::endl;
+        double elapsedTime = endTime - startTime;
+        std::cout << "Running MPI Implementation..." << std::endl;
+        std::cout << "Processes: " << numProcs << std::endl;
+        std::cout << "Matrix Size: " << matrixSize << std::endl;
+        std::cout << "# elapsed time (wavefront): " << elapsedTime << " seconds" << std::endl;
         std::cout << "Last element of the matrix: " << matrix.getElement(matrixSize - 1, matrixSize - 1) << std::endl;
     }
 
